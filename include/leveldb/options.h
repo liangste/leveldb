@@ -18,6 +18,8 @@ class FilterPolicy;
 class Logger;
 class Snapshot;
 
+#define NUM_LEVELS 7
+
 // DB contents are stored in a set of blocks, each of which holds a
 // sequence of key,value pairs.  Each block may be compressed before
 // being stored in a file.  The following enum describes which
@@ -140,6 +142,14 @@ struct LEVELDB_EXPORT Options {
   // Many applications will benefit from passing the result of
   // NewBloomFilterPolicy() here.
   const FilterPolicy* filter_policy = nullptr;
+
+  // ========================== Monkey hacks below ==========================
+  double size_ratio = 2;
+
+  // by default, leveldb uses tiered policy
+  bool use_leveled_merge = false;
+
+  size_t leveled_file_sizes[NUM_LEVELS];
 };
 
 // Options that control read operations

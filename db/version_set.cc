@@ -28,6 +28,7 @@ static size_t TargetFileSize(const Options* options) {
 // Maximum bytes of overlaps in grandparent (i.e., level+2) before we
 // stop building a single file in a level->level+1 compaction.
 static int64_t MaxGrandParentOverlapBytes(const Options* options) {
+  // NOT USED
   return 10 * TargetFileSize(options);
 }
 
@@ -35,7 +36,9 @@ static int64_t MaxGrandParentOverlapBytes(const Options* options) {
 // the lower level file set of a compaction if it would make the
 // total compaction cover more than this many bytes.
 static int64_t ExpandedCompactionByteSizeLimit(const Options* options) {
-  return 25 * TargetFileSize(options);
+  // NOT USED
+  //return 25 * TargetFileSize(options);
+  return 0;
 }
 
 static double MaxBytesForLevel(const Options* options, int level) {
@@ -43,9 +46,9 @@ static double MaxBytesForLevel(const Options* options, int level) {
   // the level-0 compaction threshold based on number of files.
 
   // Result for both level-0 and level-1
-  double result = 10. * 1048576.0;
+  double result = options->size_ratio * 1048576.0;
   while (level > 1) {
-    result *= 10;
+    result *= options->size_ratio;
     level--;
   }
   return result;
@@ -53,6 +56,9 @@ static double MaxBytesForLevel(const Options* options, int level) {
 
 static uint64_t MaxFileSizeForLevel(const Options* options, int level) {
   // We could vary per level to reduce number of files?
+  if (options->use_leveled_merge && level > 0) {
+    return options->leveled_file_sizes[level];
+  }
   return TargetFileSize(options);
 }
 
@@ -469,6 +475,7 @@ bool Version::OverlapInLevel(int level, const Slice* smallest_user_key,
 
 int Version::PickLevelForMemTableOutput(const Slice& smallest_user_key,
                                         const Slice& largest_user_key) {
+  /* NOT USED
   int level = 0;
   if (!OverlapInLevel(0, &smallest_user_key, &largest_user_key)) {
     // Push to next level if there is no overlap in next level,
@@ -492,6 +499,8 @@ int Version::PickLevelForMemTableOutput(const Slice& smallest_user_key,
     }
   }
   return level;
+  */
+  return 0;
 }
 
 // Store in "*inputs" all files in "level" that overlap [begin,end]
@@ -1496,13 +1505,15 @@ Compaction::~Compaction() {
 }
 
 bool Compaction::IsTrivialMove() const {
+  /* NOT USED
   const VersionSet* vset = input_version_->vset_;
   // Avoid a move if there is lots of overlapping grandparent data.
   // Otherwise, the move could create a parent file that will require
   // a very expensive merge later on.
   return (num_input_files(0) == 1 && num_input_files(1) == 0 &&
           TotalFileSize(grandparents_) <=
-              MaxGrandParentOverlapBytes(vset->options_));
+              MaxGrandParentOverlapBytes(vset->options_)); */
+  return false;
 }
 
 void Compaction::AddInputDeletions(VersionEdit* edit) {
@@ -1535,6 +1546,7 @@ bool Compaction::IsBaseLevelForKey(const Slice& user_key) {
 }
 
 bool Compaction::ShouldStopBefore(const Slice& internal_key) {
+  /* NOT USED
   const VersionSet* vset = input_version_->vset_;
   // Scan to find earliest grandparent file that contains key.
   const InternalKeyComparator* icmp = &vset->icmp_;
@@ -1556,6 +1568,8 @@ bool Compaction::ShouldStopBefore(const Slice& internal_key) {
   } else {
     return false;
   }
+  */
+  return false;
 }
 
 void Compaction::ReleaseInputs() {

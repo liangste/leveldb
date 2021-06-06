@@ -7,6 +7,7 @@
 #include "util/random.h"
 #include "util/testutil.h"
 #include "util/histogram.h"
+#include "leveldb/filter_policy.h"
 
 using std::cout;
 using std::endl;
@@ -87,6 +88,7 @@ class KeyBuffer {
 class Benchmark {
 private:
   DB* db_;
+  Options options_;
 public:
   Benchmark()
     : db_(nullptr) {
@@ -94,6 +96,13 @@ public:
 
   ~Benchmark() {
     delete db_;
+
+    for (int i = 0; i < NUM_LEVELS; ++i) {
+      if (options_.monkey_filter_policies[i]) {
+        delete options_.monkey_filter_policies[i];
+      }
+    }
+    delete options_.filter_policy;
   }
 
   void RunDefault() {
@@ -106,7 +115,7 @@ public:
 
     //int total_size = 1024 * 1024 * 1024;
     int total_size = 128 * 1024 * 1024;
-    int entry_size = 1024;
+    int entry_size = 1024 - 16;
     int num_entries_writes = total_size / entry_size;
     int num_entries_lookup = 16 * 1024;
 
@@ -143,20 +152,39 @@ public:
     std::fprintf(stdout, "nothing to do\n");
   }
 
-  void Run() {
-    DestroyDB(FLAGS_db, Options());
-    Options options;
-    options.create_if_missing = true;
-    options.env = g_env;
-    options.use_leveled_merge = false;
+  void SetupLeveling(Options& options) {
+    options.use_leveled_merge = true;
     size_t size = options.max_file_size * options.size_ratio; // level 1 size
     for (int i = 1; i < NUM_LEVELS; ++i) {
-      std::cout << "level " << i << " size " << size << std::endl;
       options.leveled_file_sizes[i] = size;
       size *= options.size_ratio;
     }
+  }
 
-    Status s = DB::Open(options, FLAGS_db, &db_);
+  void SetupMonkey(Options& options) {
+    options.monkey_filter_policies[0] = NewBloomFilterPolicy(11);
+    options.monkey_filter_policies[1] = NewBloomFilterPolicy(9);
+    options.monkey_filter_policies[2] = NewBloomFilterPolicy(8);
+    options.monkey_filter_policies[3] = NewBloomFilterPolicy(7);
+    options.monkey_filter_policies[4] = NewBloomFilterPolicy(5);
+    options.monkey_filter_policies[5] = NewBloomFilterPolicy(4);
+    options.monkey_filter_policies[6] = NewBloomFilterPolicy(2);
+  }
+
+  void Run() {
+    bool use_monkey = true;
+
+    DestroyDB(FLAGS_db, Options());
+    
+    options_.create_if_missing = true;
+    options_.env = g_env;
+  
+    SetupLeveling(options_);
+    options_.monkey = use_monkey;
+    SetupMonkey(options_);
+    options_.filter_policy = NewBloomFilterPolicy(5);
+
+    Status s = DB::Open(options_, FLAGS_db, &db_);
     if (!s.ok()) {
       std::fprintf(stderr, "open error: %s\n", s.ToString().c_str());
       std::exit(1);

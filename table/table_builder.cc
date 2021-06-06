@@ -27,11 +27,17 @@ struct TableBuilder::Rep {
         data_block(&options),
         index_block(&index_block_options),
         num_entries(0),
+        data_size(0),
         closed(false),
-        filter_block(opt.filter_policy == nullptr
-                         ? nullptr
-                         : new FilterBlockBuilder(opt.filter_policy)),
         pending_index_entry(false) {
+
+    if (opt.monkey && level > 0 && level < NUM_LEVELS) {
+      filter_block = new FilterBlockBuilder(opt.monkey_filter_policies[level]);
+    } else {
+      filter_block = opt.filter_policy == nullptr
+                         ? nullptr
+                         : new FilterBlockBuilder(opt.filter_policy);
+    }
     index_block_options.block_restart_interval = 1;
   }
 
@@ -44,8 +50,10 @@ struct TableBuilder::Rep {
   BlockBuilder index_block;
   std::string last_key;
   int64_t num_entries;
+  size_t data_size;
   bool closed;  // Either Finish() or Abandon() has been called.
   FilterBlockBuilder* filter_block;
+  int level;
 
   // We do not emit the index entry for a block until we have seen the
   // first key for the next data block.  This allows us to use shorter
@@ -67,6 +75,15 @@ TableBuilder::TableBuilder(const Options& options, WritableFile* file)
   if (rep_->filter_block != nullptr) {
     rep_->filter_block->StartBlock(0);
   }
+  rep_->level = -1;
+}
+
+TableBuilder::TableBuilder(const Options& options, int level, WritableFile* file)
+    : rep_(new Rep(options, file)) {
+  if (rep_->filter_block != nullptr) {
+    rep_->filter_block->StartBlock(0);
+  }
+  rep_->level = level;
 }
 
 TableBuilder::~TableBuilder() {
@@ -117,6 +134,7 @@ void TableBuilder::Add(const Slice& key, const Slice& value) {
   r->data_block.Add(key, value);
 
   const size_t estimated_block_size = r->data_block.CurrentSizeEstimate();
+  r->data_size += estimated_block_size;
   if (estimated_block_size >= r->options.block_size) {
     Flush();
   }
@@ -219,6 +237,17 @@ Status TableBuilder::Finish() {
       std::string handle_encoding;
       filter_block_handle.EncodeTo(&handle_encoding);
       meta_index_block.Add(key, handle_encoding);
+    }
+
+    {
+      // SL stats block
+      std::string key = "statsblock";
+      char buffer[200];
+      snprintf(buffer, 200, "data_size:%ld,num_entries:%ld,monkey:%d,level:%d",
+               r->data_size,
+               r->num_entries, r->options.monkey, r->level);
+      std::string encoding(buffer);
+      meta_index_block.Add(key, encoding);
     }
 
     // TODO(postrelease): Add stats and other meta blocks

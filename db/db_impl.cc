@@ -814,10 +814,11 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
   }
 
   // Make the output file
+  int output_level = compact->compaction->level() + 1;
   std::string fname = TableFileName(dbname_, file_number);
   Status s = env_->NewWritableFile(fname, &compact->outfile);
   if (s.ok()) {
-    compact->builder = new TableBuilder(options_, compact->outfile);
+    compact->builder = new TableBuilder(options_, output_level, compact->outfile);
   }
   return s;
 }
@@ -1416,12 +1417,19 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
     for (int level = 0; level < config::kNumLevels; level++) {
       int files = versions_->NumLevelFiles(level);
       if (stats_[level].micros > 0 || files > 0) {
-        std::snprintf(buf, sizeof(buf), "%3d %8d %8.0f %9.0f %8.0f %9.0f\n",
+        std::snprintf(buf, sizeof(buf), "%3d %8d %8.0f %9.0f %8.0f %9.0f",
                       level, files, versions_->NumLevelBytes(level) / 1048576.0,
                       stats_[level].micros / 1e6,
                       stats_[level].bytes_read / 1048576.0,
                       stats_[level].bytes_written / 1048576.0);
         value->append(buf);
+
+        for (int f = 0; f < files; ++f) {
+          std::snprintf(buf, sizeof(buf), " size=%lu ", 
+            versions_->current_->files_[level][f]->file_size);
+          value->append(buf);
+        }
+        value->append("\n");
       }
     }
     return true;

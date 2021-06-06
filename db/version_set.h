@@ -117,6 +117,7 @@ class Version {
  private:
   friend class Compaction;
   friend class VersionSet;
+  friend class DBImpl;
 
   class LevelFileNumIterator;
 
@@ -274,6 +275,7 @@ class VersionSet {
 
   friend class Compaction;
   friend class Version;
+  friend class DBImpl;
 
   bool ReuseManifest(const std::string& dscname, const std::string& dscbase);
 

@@ -150,6 +150,10 @@ struct LEVELDB_EXPORT Options {
   bool use_leveled_merge = false;
 
   size_t leveled_file_sizes[NUM_LEVELS];
+
+  bool monkey = false;
+  int monkey_level = 0;
+  const FilterPolicy* monkey_filter_policies[NUM_LEVELS];
 };
 
 // Options that control read operations

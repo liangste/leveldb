@@ -97,18 +97,42 @@ void Table::ReadMeta(const Footer& footer) {
   }
   Block* meta = new Block(contents);
 
-  Iterator* iter = meta->NewIterator(BytewiseComparator());
-  std::string key = "filter.";
-  key.append(rep_->options.filter_policy->Name());
-  iter->Seek(key);
-  if (iter->Valid() && iter->key() == Slice(key)) {
-    ReadFilter(iter->value());
+  // read the stats meta block
+  size_t data_size;
+  int64_t num_entries;
+  bool monkey = false;
+  int level;
+  {
+    Iterator* iter = meta->NewIterator(BytewiseComparator());
+    std::string key = "statsblock";
+    iter->Seek(key);
+    if (iter->Valid() && iter->key() == Slice(key)) {
+      int tmp = 0;
+      if (4 == sscanf(iter->value().ToString().c_str(),
+            "data_size:%ld,num_entries:%ld,monkey:%d,level:%d", &data_size,
+            &num_entries, &tmp, &level)) {
+        monkey = tmp ? true : false;
+        //std::fprintf(stdout, "read stats %s\n", iter->value().ToString().c_str());
+      }
+    }
+    delete iter;
   }
-  delete iter;
-  delete meta;
+
+  // read the filters meta block
+  {
+    Iterator* iter = meta->NewIterator(BytewiseComparator());
+    std::string key = "filter.";
+    key.append(rep_->options.filter_policy->Name());
+    iter->Seek(key);
+    if (iter->Valid() && iter->key() == Slice(key)) {
+      ReadFilter(iter->value(), monkey, level);
+    }
+    delete iter;
+    delete meta;
+  }
 }
 
-void Table::ReadFilter(const Slice& filter_handle_value) {
+void Table::ReadFilter(const Slice& filter_handle_value, bool monkey, int level) {
   Slice v = filter_handle_value;
   BlockHandle filter_handle;
   if (!filter_handle.DecodeFrom(&v).ok()) {
@@ -128,7 +152,12 @@ void Table::ReadFilter(const Slice& filter_handle_value) {
   if (block.heap_allocated) {
     rep_->filter_data = block.data.data();  // Will need to delete later
   }
-  rep_->filter = new FilterBlockReader(rep_->options.filter_policy, block.data);
+
+  if (monkey && level > 0 && level < NUM_LEVELS) {
+    rep_->filter = new FilterBlockReader(rep_->options.monkey_filter_policies[level], block.data);
+  } else {
+    rep_->filter = new FilterBlockReader(rep_->options.filter_policy, block.data);
+  }
 }
 
 Table::~Table() { delete rep_; }

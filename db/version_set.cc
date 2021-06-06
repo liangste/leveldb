@@ -1488,7 +1488,7 @@ Compaction* VersionSet::CompactRange(int level, const InternalKey* begin,
 
 Compaction::Compaction(const Options* options, int level)
     : level_(level),
-      max_output_file_size_(MaxFileSizeForLevel(options, level)),
+      max_output_file_size_(MaxFileSizeForLevel(options, level + 1)),
       input_version_(nullptr),
       grandparent_index_(0),
       seen_key_(false),

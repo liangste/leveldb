@@ -114,7 +114,7 @@ public:
     // uniformly distributed
 
     //int total_size = 1024 * 1024 * 1024;
-    int total_size = 128 * 1024 * 1024;
+    int total_size = 156 * 1024 * 1024;
     int entry_size = 1024 - 16;
     int num_entries_writes = total_size / entry_size;
     int num_entries_lookup = 16 * 1024;

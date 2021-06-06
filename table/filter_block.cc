@@ -50,7 +50,6 @@ Slice FilterBlockBuilder::Finish() {
 
 void FilterBlockBuilder::GenerateFilter() {
   const size_t num_keys = start_.size();
-  //fprintf(stdout, "num_keys=%lu\n", num_keys);
   if (num_keys == 0) {
     // Fast path if there are no keys for this filter
     filter_offsets_.push_back(result_.size());

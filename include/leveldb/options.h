@@ -18,7 +18,7 @@ class FilterPolicy;
 class Logger;
 class Snapshot;
 
-#define NUM_LEVELS 7
+#define NUM_LEVELS 20
 
 // DB contents are stored in a set of blocks, each of which holds a
 // sequence of key,value pairs.  Each block may be compressed before
@@ -81,12 +81,12 @@ struct LEVELDB_EXPORT Options {
   // so you may wish to adjust this parameter to control memory usage.
   // Also, a larger write buffer will result in a longer recovery time
   // the next time the database is opened.
-  size_t write_buffer_size = 4 * 1024 * 1024;
+  size_t write_buffer_size = 2 * 1024 * 1024;
 
   // Number of open files that can be used by the DB.  You may need to
   // increase this if your database has a large working set (budget
   // one open file per 2MB of working set).
-  int max_open_files = 1000;
+  int max_open_files = 50000;
 
   // Control over blocks (user data is stored in a set of blocks, and
   // a block is the unit of reading from disk).

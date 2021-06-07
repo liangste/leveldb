@@ -11,6 +11,7 @@
 #include <set>
 #include <string>
 #include <vector>
+#include <iostream>
 
 #include "db/builder.h"
 #include "db/db_iter.h"
@@ -98,7 +99,8 @@ Options SanitizeOptions(const std::string& dbname,
   Options result = src;
   result.comparator = icmp;
   result.filter_policy = (src.filter_policy != nullptr) ? ipolicy : nullptr;
-  ClipToRange(&result.max_open_files, 64 + kNumNonTableCacheFiles, 50000);
+  //ClipToRange(&result.max_open_files, 64 + kNumNonTableCacheFiles, 50000);
+  ClipToRange(&result.max_open_files, kNumNonTableCacheFiles, 50000);
   ClipToRange(&result.write_buffer_size, 64 << 10, 1 << 30);
   ClipToRange(&result.max_file_size, 1 << 20, 1 << 30);
   ClipToRange(&result.block_size, 1 << 10, 4 << 20);
@@ -113,7 +115,8 @@ Options SanitizeOptions(const std::string& dbname,
     }
   }
   if (result.block_cache == nullptr) {
-    result.block_cache = NewLRUCache(8 << 20);
+    // NOTE disabled for Monkey
+    //result.block_cache = NewLRUCache(8 << 20);
   }
   return result;
 }
@@ -1001,9 +1004,14 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
       compact->current_output()->largest.DecodeFrom(key);
       compact->builder->Add(key, input->value());
 
+      // TODO should change the MaxOutputFileSize based on policy?
+      int output_level = compact->compaction->level() + 1;
+      uint64_t output_size = compact->compaction->MaxOutputFileSize();
+      if (options_.use_leveled_merge) {
+        output_size = options_.leveled_file_sizes[output_level];
+      }
       // Close output file if it is big enough
-      if (compact->builder->FileSize() >=
-          compact->compaction->MaxOutputFileSize()) {
+      if (compact->builder->FileSize() >= output_size) {
         status = FinishCompactionOutputFile(compact, input);
         if (!status.ok()) {
           break;
@@ -1417,19 +1425,21 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
     for (int level = 0; level < config::kNumLevels; level++) {
       int files = versions_->NumLevelFiles(level);
       if (stats_[level].micros > 0 || files > 0) {
-        std::snprintf(buf, sizeof(buf), "%3d %8d %8.0f %9.0f %8.0f %9.0f",
+        std::snprintf(buf, sizeof(buf), "%3d %8d %8.0f %9.0f %8.0f %9.0f\n",
                       level, files, versions_->NumLevelBytes(level) / 1048576.0,
                       stats_[level].micros / 1e6,
                       stats_[level].bytes_read / 1048576.0,
                       stats_[level].bytes_written / 1048576.0);
         value->append(buf);
 
+        /*
         for (int f = 0; f < files; ++f) {
           std::snprintf(buf, sizeof(buf), " size=%lu ", 
             versions_->current_->files_[level][f]->file_size);
           value->append(buf);
         }
         value->append("\n");
+        */
       }
     }
     return true;

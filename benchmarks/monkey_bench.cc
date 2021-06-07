@@ -26,6 +26,32 @@ static bool FLAGS_use_monkey = false;
 // their original size after compression
 static double FLAGS_compression_ratio = 0.5;
 
+// these parameters need to be tuned for each run
+int default_filter_bits = 1;
+
+/*
+static const int monkey_filter_bits[] = {
+  20, 18, 17, 15,
+  14, 12, 11,  9,
+   8,  6,  5,  4, 
+  19,  1,  1,  1,
+   1,  1,  1,  1,
+};
+*/
+
+static const int monkey_filter_bits[] = {
+  40, 35, 30, 25,
+  20, 15, 14,  13,
+   12,  11,  10,  9, 
+  19,  1,  1,  1,
+   1,  1,  1,  1,
+};
+
+
+int entry_size = 1024 - 16;
+int num_entries_writes = 32768;
+int num_entries_lookup = 16 * 1024;
+
 leveldb::Env* g_env = nullptr;
 
 namespace leveldb {
@@ -65,20 +91,20 @@ class RandomGenerator {
 // helper class, taken from db_bench.cc
 class KeyBuffer {
  public:
-  KeyBuffer(int prefix)
-    : prefix_(prefix) {
+  KeyBuffer(char c)
+    : prefix_(1) {
     assert(prefix < sizeof(buffer_));
-    memset(buffer_, 'a', prefix);
+    memset(buffer_, c, prefix_);
   }
   KeyBuffer& operator=(KeyBuffer& other) = delete;
   KeyBuffer(KeyBuffer& other) = delete;
 
   void Set(int k) {
     std::snprintf(buffer_ + prefix_,
-                  sizeof(buffer_) - prefix_, "%016d", k);
+                  sizeof(buffer_) - prefix_, "%015d", k);
   }
 
-  Slice slice() const { return Slice(buffer_, prefix_ + 16); }
+  Slice slice() const { return Slice(buffer_, prefix_ + 15); }
 
  private:
   int prefix_;
@@ -105,47 +131,87 @@ public:
     delete options_.filter_policy;
   }
 
-  void RunDefault() {
-    // this is the default setup described in the Monkey paper
-    //
-    // - insert 1GB of key-value entries, with each entry of 1KB
-    // and where entries are uniformly distributed across the key space
-    // - issue 16KB zero-result point lookups with also keys that are
-    // uniformly distributed
+  void doRead0(int num_entries) {
+    Random rand(time(NULL));
+    std::string value;
+    ReadOptions read_options;
+    KeyBuffer key1('b');
+    Histogram hist;
 
-    //int total_size = 1024 * 1024 * 1024;
-    int total_size = 156 * 1024 * 1024;
-    int entry_size = 1024 - 16;
-    int num_entries_writes = total_size / entry_size;
-    int num_entries_lookup = 16 * 1024;
+    read_options.fill_cache = false;
 
-    Random rand(0);
+    hist.Clear();
+    for (int n = 0; n < 3; ++n) {
+      double start = g_env->NowMicros();
+      for (int i = 0; i < num_entries_lookup; ++i) {
+        key1.Set(rand.Next());
+        db_->Get(read_options, key1.slice(), &value);
+
+      }
+      double end = g_env->NowMicros();
+      double taken = (end - start);
+      hist.Add(taken);
+    }
+
+    std::cout << num_entries << " " << hist.Average() << " " << hist.StandardDeviation() << std::endl;
+  }
+
+  void VaryNumEntries() {
+    Random rand(time(NULL));
     RandomGenerator gen;
     WriteOptions write_options;
-    ReadOptions read_options;
-    KeyBuffer key0(0);
-    KeyBuffer key1(1);
-
-    for (int i = 0; i < num_entries_writes; ++i) {
-      key0.Set(rand.Uniform(num_entries_writes));
-      db_->Put(write_options, key0.slice(), gen.Generate(entry_size));
-    }
-
-    std::string value;
-
-    db_->GetProperty("leveldb.stats", &value);
-    std::cout << value << std::endl;
+    KeyBuffer key0('a');
     
-    double total_time = 0;
-    for (int i = 0; i < num_entries_lookup; ++i) {
-      key1.Set(rand.Uniform(num_entries_lookup));
-      double start = g_env->NowMicros();
-      db_->Get(read_options, key1.slice(), &value);
-      double end = g_env->NowMicros();
-      total_time += (end - start);
+    int num_entries_start = 1 << 15;
+    //int num_entries_end = 1 << 23;
+    int num_entries_end = 1 << 19;
+    
+    for (int i = num_entries_start; i < num_entries_end; ++i) {
+      //key0.Set(rand.Next());
+      key0.Set(i);
+      Status s = db_->Put(write_options, key0.slice(), gen.Generate(entry_size));
+      if (!s.ok()) {
+        std::cout << s.ToString() << std::endl;
+        break;
+      }
+
+      if (i >= num_entries_start) {
+        std::string prop;
+        db_->GetProperty("leveldb.stats", &prop);
+        std::cout << prop << std::endl;
+
+        doRead0(i);
+        num_entries_start *= 2;
+      }
+    }
+  }
+
+  void VaryEntrySize() {
+    Random rand(time(NULL));
+    RandomGenerator gen;
+    WriteOptions write_options;
+    KeyBuffer key0('a');
+
+    
+    entry_size = FLAGS_arg - 16;
+    num_entries_writes = 1024 * 1024;
+    
+    for (int i = 0; i < num_entries_writes; ++i) {
+      //key0.Set(rand.Next());
+      key0.Set(i);
+      Status s = db_->Put(write_options, key0.slice(), gen.Generate(entry_size));
+      if (!s.ok()) {
+        std::cout << s.ToString() << std::endl;
+        break;
+      }
+
     }
 
-    std::cout << "non-hist median " << (total_time / (double) num_entries_lookup) << std::endl;
+    std::string prop;
+    db_->GetProperty("leveldb.stats", &prop);
+    std::cout << prop << std::endl;
+
+    doRead0(0);
   }
 
   void RunBenchmark() {
@@ -162,27 +228,22 @@ public:
   }
 
   void SetupMonkey(Options& options) {
-    options.monkey_filter_policies[0] = NewBloomFilterPolicy(11);
-    options.monkey_filter_policies[1] = NewBloomFilterPolicy(9);
-    options.monkey_filter_policies[2] = NewBloomFilterPolicy(8);
-    options.monkey_filter_policies[3] = NewBloomFilterPolicy(7);
-    options.monkey_filter_policies[4] = NewBloomFilterPolicy(5);
-    options.monkey_filter_policies[5] = NewBloomFilterPolicy(4);
-    options.monkey_filter_policies[6] = NewBloomFilterPolicy(2);
+    for (int i = 0; i < NUM_LEVELS; ++i) {
+      options.monkey_filter_policies[i] = NewBloomFilterPolicy(monkey_filter_bits[i]);
+    }
   }
 
   void Run() {
-    bool use_monkey = true;
-
     DestroyDB(FLAGS_db, Options());
     
     options_.create_if_missing = true;
     options_.env = g_env;
   
     SetupLeveling(options_);
-    options_.monkey = use_monkey;
+    options_.monkey = FLAGS_use_monkey;
     SetupMonkey(options_);
-    options_.filter_policy = NewBloomFilterPolicy(5);
+    options_.filter_policy = NewBloomFilterPolicy(default_filter_bits);
+    options_.compression = kNoCompression;
 
     Status s = DB::Open(options_, FLAGS_db, &db_);
     if (!s.ok()) {
@@ -192,14 +253,16 @@ public:
 
     switch (FLAGS_graph_num) {
       case 0:
-        RunDefault();
+        VaryNumEntries();
         break;
       case 1:
+        VaryEntrySize();
+        break;
       case 2:
+        VaryEntrySize();
+          break;
       case 3:
-      case 4:
-      case 5:
-        RunBenchmark();
+        VaryEntrySize();
         break;
       default:
         std::fprintf(stderr, "Invalid graph number %d\n", FLAGS_graph_num);
